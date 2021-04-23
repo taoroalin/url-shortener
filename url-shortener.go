@@ -5,17 +5,19 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/valyala/fasthttp"
 )
 
-const filePath = "../url-shortener.txt"
+const filePath = "./url-shortener.txt"
 
 var (
 	file          *os.File
 	urls          []string
 	savedUrlCount int
+	mutex         sync.RWMutex
 )
 
 // custom base64 order: - _ 0-9 a-z A-Z
@@ -91,25 +93,30 @@ func rootHandler(ctx *fasthttp.RequestCtx) {
 	if len(pathBytes) > 9 && string(pathBytes)[:9] == "/add-url/" {
 		path := string(pathBytes)
 		url := path[9:] // length of /add-url/
-
+		mutex.Lock()
 		idx := len(urls)
 		urls = append(urls, url)
+		mutex.Unlock()
 
 		ctx.WriteString("your url is " + idxToBase64String(int32(idx)))
 	} else {
 		reqHex := pathBytes[1:]
 		index := base64StringToIdx(reqHex)
+		mutex.RLock()
 		if index < 0 || index >= len(urls) {
 			ctx.WriteString("Invalid URL")
 			return
 		}
 		url := urls[index]
+		mutex.RUnlock()
 		ctx.Response.Header.Set("Location", url)
 		ctx.SetStatusCode(301)
 	}
 }
 
 func saveUrls() {
+	mutex.RLock()
+	defer mutex.RUnlock()
 	if len(urls) > savedUrlCount {
 		oldSavedUrlCount := savedUrlCount
 		savedUrlCount = len(urls)
